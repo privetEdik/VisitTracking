@@ -1,0 +1,14 @@
+spring:
+  datasource:
+    username: testuser
+    password: testpass
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+    url: jdbc:tc:mysql:8.0:///testdb
+  jpa:
+    hibernate:
+      ddl-auto: none
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/schema  # Только создание таблиц
+  profiles:
+    active: test
