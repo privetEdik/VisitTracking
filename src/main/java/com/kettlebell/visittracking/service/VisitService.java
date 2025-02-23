@@ -27,10 +27,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -85,50 +82,34 @@ public class VisitService {
         return new VisitResponse(visitRepo.save(visit));
     }
 
-    public RootDto findPatientsWithLastVisits(String search, List<Integer> doctorIds, Pageable pageable) {
+    public RootDto findPatientsWithLastVisits(String search, Set<Integer> doctorIds, Pageable pageable) {
+        Page<Object[]> results = visitRepo.findPatientsWithLastVisits(search, doctorIds, pageable);
 
-        Page<Object[]> result = visitRepo.findPatientsWithLastVisits(search, doctorIds, pageable);
-
-        List<Visit> visits = result.stream().map(obj -> {
-            Visit visit = (Visit) obj[0];
-            Long totalPatients = (Long) obj[1];
-
-            // Устанавливаем значение в транзиентное поле доктора
-            visit.getDoctor().setTotalPatients(totalPatients);
-            return visit;
-        }).toList();
-
-        return mapToRootDto(visits);
-    }
-
-    private RootDto mapToRootDto(List<Visit> visits) {
         // Группируем визиты по пациентам
-        Map<Integer, PatientDto> patientMap = new HashMap<>();
+        Map<Integer, PatientDto> patientMap = new LinkedHashMap<>();
 
-        for (Visit visit : visits) {
-            Patient patient = visit.getPatient();
-            Doctor doctor = visit.getDoctor();
+        for (Object[] row : results) {
+            Patient patient = (Patient) row[0];
+            Instant startDateTime = (Instant) row[1];
+            Instant endDateTime = (Instant) row[2];
+            Doctor doctor = (Doctor) row[3];
+            Long totalPatients = ((Number) row[4]).longValue();
 
-            // Создаём или получаем DTO пациента
-            PatientDto patientDto = patientMap.computeIfAbsent(
-                    patient.getId(),
-                    id -> new PatientDto(patient.getFirstName(), patient.getLastName(), new ArrayList<>())
+            DoctorDto doctorDto = new DoctorDto(doctor.getFirstName(), doctor.getLastName(), totalPatients);
+
+            VisitDto visitDto = new VisitDto(
+                    formatDate(startDateTime, doctor.getTimezone()),
+                    formatDate(endDateTime, doctor.getTimezone()),
+                    doctorDto
             );
 
-            // Добавляем визит в список пациента
-            patientDto.getLastVisits().add(new VisitDto(
-                    formatDate(visit.getStartDateTime(), doctor.getTimezone()),
-                    formatDate(visit.getEndDateTime(), doctor.getTimezone()),
-                    new DoctorDto(
-                            doctor.getFirstName(),
-                            doctor.getLastName(),
-                            doctor.getTotalPatients()
-                    )
-            ));
+            patientMap.computeIfAbsent(patient.getId(), id ->
+                    new PatientDto(patient.getFirstName(), patient.getLastName(), new ArrayList<>())
+            ).getLastVisits().add(visitDto);
         }
+
         return new RootDto(new ArrayList<>(patientMap.values()));
     }
-
     private String formatDate(Instant instant, String timezone) {
         return FORMATTER.withZone(ZoneId.of(timezone)).format(instant);
     }
